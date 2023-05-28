@@ -1,0 +1,20 @@
+[package]
+name = "pubgrub-pyo3"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lib]
+name = "pubgrub"
+crate-type = ["cdylib"]
+
+[dependencies]
+pep440_rs = { version = "0.3.9", features = ["pyo3", "serde"], path = "../pep440-rs" }
+pep508_rs = { version = "0.2.1", path = "../pep508_rs", features = ["pyo3", "pyo3-log", "serde_json", "toml", "serde", "anyhow", "modern"] }
+pubgrub = { version = "0.2.1", features = ["serde"], path = "../pubgrub" }
+pyo3 = { version = "0.18.3", features = ["abi3-py37", "anyhow", "extension-module", "serde"] }
+pyo3-log = "0.8.1"
+pypi_types = { version = "0.1.0", path = "../monotrail-resolve/pypi_types_crate" }
+# pythonize = "0.18.0"
+rustc-hash = "1.1.0"
+serde = { version = "1.0.163", features = ["derive"] }
