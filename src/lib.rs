@@ -1,4 +1,4 @@
-use pep440_rs::{PyVersion, Version as VersionBase, VersionSpecifiers, VersionSpecifier};
+use pep440_rs::{PyVersion, Version as VersionBase, VersionSpecifier, VersionSpecifiers};
 use pep508_rs::modern::VersionSpecifierModern;
 use pep508_rs::{MarkerEnvironment, Requirement};
 
@@ -76,75 +76,13 @@ impl fmt::Display for PyPackage {
     }
 }
 
-// #[derive(Clone, Debug)]
-// struct PyVersion {
-//     proxy: Py<PyAny>,
-// }
-// impl fmt::Display for PyVersion {
-//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-//         let repr = Python::with_gil(|py| {
-//             let repr = self.proxy.getattr(py, "__repr__").unwrap();
-//             let repr: String = repr.call0(py).unwrap().extract(py).unwrap();
-//             repr
-//         });
-//         f.write_str(&format!("Rusty({repr})"))
-//     }
-// }
-// impl PartialEq for PyVersion {
-//     fn eq(&self, other: &Self) -> bool {
-//         Python::with_gil(|py| {
-//             let eq = self.proxy.getattr(py, "__eq__").unwrap();
-//             let eq: bool = eq
-//                 .call1(py, (other.proxy.clone(),))
-//                 .unwrap()
-//                 .extract(py)
-//                 .unwrap();
-//             eq
-//         })
-//     }
-// }
-// impl Eq for PyVersion {}
-// impl PartialOrd for PyVersion {
-//     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-//         // self.proxy.partial_cmp(&other.prox
-//         // eprintln!("partial_cmp: {self} {other}");
-
-//         Python::with_gil(|py| {
-//             for (attr, cmp) in [
-//                 ("__eq__", std::cmp::Ordering::Equal),
-//                 ("__gt__", std::cmp::Ordering::Greater),
-//                 ("__lt__", std::cmp::Ordering::Less),
-//             ] {
-//                 if let Ok(ok) = self
-//                     .proxy
-//                     .call_method1(py, attr, (other.proxy.clone(),))
-//                     .unwrap_or_else(|e| {
-//                         eprintln!("Got an error! {attr}: {e}");
-//                         py.None()
-//                     })
-//                     .extract(py)
-//                 {
-//                     if ok {
-//                         return Some(cmp);
-//                     }
-//                 }
-//             }
-//             None
-//         })
-//     }
-// }
-// impl Ord for PyVersion {
-//     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-//         //  eprintln!("PyVersion::cmp {self} {other}");
-//         self.partial_cmp(other).unwrap()
-//     }
-// }
-
 impl PyDependencyProvider {
     pub fn available_versions(&self, package: &PyPackage) -> impl Iterator<Item = PyVersion> {
         let versions = Python::with_gil(|py| {
-            let fun = self.proxy.getattr(py, "available_versions").unwrap();
-            let res = fun.call1(py, (package.proxy.clone(),)).unwrap();
+            let res = self
+                .proxy
+                .call_method1(py, "available_version", (package.proxy.clone(),))
+                .unwrap();
             let res = res.downcast::<PyList>(py).expect("expected a list");
             let versions: Vec<_> = res
                 .into_iter()
@@ -180,7 +118,7 @@ fn version_specifier_to_pubgrub(version_specifier: &PyList) -> Range<PyVersion> 
             }
             "~=" => {
                 let release = &version.0.release;
-                let vnext  = PyVersion(VersionBase::from_release(vec![release[0], release[1] + 1]));
+                let vnext = PyVersion(VersionBase::from_release(vec![release[0], release[1] + 1]));
 
                 Range::between(version, vnext)
             }
@@ -246,18 +184,30 @@ impl DependencyProvider<PyPackage, PyVersion> for PyDependencyProvider {
                 if let Ok(asdict) = res.downcast::<PyDict>(py) {
                     for (k, v) in asdict {
                         let package = PyPackage { proxy: k.into() };
-                        let version_specifier: &PyList = v.downcast().unwrap();
-                        let full_range = version_specifier_to_pubgrub(version_specifier);
-                        deps.insert(package, full_range);
+                        if let Ok(version_specifier) = v.downcast::<PyList>() {
+                            let full_range = version_specifier_to_pubgrub(version_specifier);
+                            deps.insert(package, full_range);
+                        } else if let Ok(url) = v.extract::<&str>() {
+                            eprintln!("TODO: handle urls: {url}")
+                            // deps.insert()
+                        } else {
+                            todo!("raise value error {v}")
+                        }
                     }
                 } else if let Ok(aslist) = res.downcast::<PyList>(py) {
                     for item in aslist {
                         let item: &PyTuple = item.downcast().unwrap();
                         let (k, v): (&PyAny, &PyAny) = item.extract().unwrap();
                         let package = PyPackage { proxy: k.into() };
-                        let version_specifier: &PyList = v.downcast().unwrap();
-                        let full_range = version_specifier_to_pubgrub(version_specifier);
-                        deps.insert(package, full_range);
+                        if let Ok(version_specifier) = v.downcast::<PyList>() {
+                            let full_range = version_specifier_to_pubgrub(version_specifier);
+                            deps.insert(package, full_range);
+                        } else if let Ok(url) = v.extract::<&str>() {
+                            eprintln!("TODO: handle urls: {url}")
+                            // deps.insert()
+                        } else {
+                            todo!("raise value error {v}")
+                        }
                     }
                 } else {
                     todo!("XXX: get-deps-results {res:?}");
