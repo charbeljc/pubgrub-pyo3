@@ -1,6 +1,5 @@
-use pep440_rs::{PyVersion, Version as VersionBase, VersionSpecifier, VersionSpecifiers};
-use pep508_rs::modern::VersionSpecifierModern;
-use pep508_rs::{MarkerEnvironment, Requirement};
+use pep440_rs::{PyVersion, Version as VersionBase, VersionSpecifier, VersionSpecifiers, PreRelease};
+use pep508_rs::{MarkerEnvironment, Requirement, Pep508Error, PyPep508Error};
 
 use pubgrub::error::PubGrubError;
 use pubgrub::range::Range;
@@ -257,17 +256,21 @@ fn py_resolve(
 }
 /// A Python module implemented in Rust.
 #[pymodule]
-fn _pubgrub(_py: Python, m: &PyModule) -> PyResult<()> {
+fn _pubgrub(py: Python, m: &PyModule) -> PyResult<()> {
     #[allow(unused_must_user)]
     {
         pyo3_log::try_init();
     }
-    m.add_class::<MarkerEnvironment>()?;
-    m.add_class::<VersionSpecifiers>()?;
-    m.add_class::<VersionSpecifier>()?;
-    // m.add_class::<VersionSpecifierModern>()?;
-    m.add_class::<Requirement>()?;
+
+    m.add_class::<PreRelease>()?;
     m.add_class::<PyVersion>()?;
+    m.add_class::<VersionSpecifier>()?;
+    m.add_class::<VersionSpecifiers>()?;
+
+    m.add_class::<Requirement>()?;
+    m.add_class::<MarkerEnvironment>()?;
+    m.add("Pep508Error", py.get_type::<PyPep508Error>())?;
+
     m.add_function(wrap_pyfunction!(py_resolve, m)?)?;
 
     Ok(())
