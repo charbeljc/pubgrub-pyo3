@@ -10,7 +10,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 pep440_rs = { git = "https://github.com/charbeljc/pep440-rs.git", branch = "pubgrub", features= ["pyo3", "serde"] }
-pep508_rs = { git = "https://github.com/charbeljc/pep508_rs.git", branch = "wip3", features = ["pyo3", "pyo3-log", "serde_json", "toml", "serde", "anyhow", "modern"] }
+pep508_rs = { git = "https://github.com/charbeljc/pep508_rs.git", branch = "pubgrub", features = ["pyo3", "pyo3-log", "serde_json", "toml", "serde", "anyhow", "modern"] }
 pubgrub = { version = "0.2.1", features = ["serde"] }
 pyo3 = { version = "0.18.3", features = ["abi3-py37", "anyhow", "extension-module", "serde"] }
 pyo3-log = "0.8.1"
