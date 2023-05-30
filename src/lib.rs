@@ -81,7 +81,7 @@ impl PyDependencyProvider {
         let versions = Python::with_gil(|py| {
             let res = self
                 .proxy
-                .call_method1(py, "available_version", (package.proxy.clone(),))
+                .call_method1(py, "available_versions", (package.proxy.clone(),))
                 .unwrap();
             let res = res.downcast::<PyList>(py).expect("expected a list");
             let versions: Vec<_> = res
