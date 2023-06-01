@@ -1,8 +1,11 @@
-use pep440_rs::{PyVersion, Version as VersionBase, VersionSpecifier, VersionSpecifiers, PreRelease};
-use pep508_rs::{MarkerEnvironment, Requirement, Pep508Error, PyPep508Error};
+use pep440_rs::{
+    PreRelease, PyVersion, Version as VersionBase, VersionSpecifier, VersionSpecifiers,
+};
+use pep508_rs::{MarkerEnvironment, PyPep508Error, Requirement};
 
 use pubgrub::error::PubGrubError;
 use pubgrub::range::Range;
+use pubgrub::report::{DefaultStringReporter, Reporter};
 use pubgrub::solver::{
     choose_package_with_fewest_versions, resolve, Dependencies, DependencyProvider,
 };
@@ -67,11 +70,11 @@ impl Hash for PyPackage {
 impl fmt::Display for PyPackage {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let repr = Python::with_gil(|py| {
-            let repr = self.proxy.getattr(py, "__repr__").unwrap();
+            let repr = self.proxy.getattr(py, "__str__").unwrap();
             let repr: String = repr.call0(py).unwrap().extract(py).unwrap();
             repr
         });
-        f.write_str(&format!("Rusty({repr})"))
+        f.write_str(&repr)
     }
 }
 
@@ -148,9 +151,9 @@ impl DependencyProvider<PyPackage, PyVersion> for PyDependencyProvider {
     }
     fn choose_package_version<T: Borrow<PyPackage>, U: Borrow<Range<PyVersion>>>(
         &self,
-        mut potential_packages: impl Iterator<Item = (T, U)>,
+        potential_packages: impl Iterator<Item = (T, U)>,
     ) -> Result<(T, Option<PyVersion>), Box<dyn std::error::Error>> {
-        Ok(pubgrub::solver::choose_package_with_fewest_versions(
+        Ok(choose_package_with_fewest_versions(
             |p| self.available_versions(p),
             potential_packages,
         ))
@@ -187,7 +190,7 @@ impl DependencyProvider<PyPackage, PyVersion> for PyDependencyProvider {
                             let full_range = version_specifier_to_pubgrub(version_specifier);
                             deps.insert(package, full_range);
                         } else if let Ok(url) = v.extract::<&str>() {
-                            eprintln!("TODO: handle urls: {url}")
+                            // eprintln!("TODO: handle urls: {url}")
                             // deps.insert()
                         } else {
                             todo!("raise value error {v}")
@@ -202,7 +205,7 @@ impl DependencyProvider<PyPackage, PyVersion> for PyDependencyProvider {
                             let full_range = version_specifier_to_pubgrub(version_specifier);
                             deps.insert(package, full_range);
                         } else if let Ok(url) = v.extract::<&str>() {
-                            eprintln!("TODO: handle urls: {url}")
+                            // eprintln!("TODO: handle urls: {url}")
                             // deps.insert()
                         } else {
                             todo!("raise value error {v}")
@@ -239,25 +242,49 @@ fn py_resolve(
             }
             Ok(dict.into())
         }),
-        Err(error) => {
-            if let PubGrubError::ErrorRetrievingDependencies {
-                package: _,
-                version: _,
-                ref source,
-            } = error
-            {
-                if let Some(e) = source.downcast_ref::<PyErr>() {
-                    return Err(e.clone_ref(py));
-                };
-            };
-            Err(PyRuntimeError::new_err(format!("error: {error:#?}")))
+        Err(PubGrubError::ErrorRetrievingDependencies {
+            package,
+            version,
+            source,
+        }) => {
+            if let Some(e) = source.downcast_ref::<PyErr>() {
+                Err(e.clone_ref(py)) // we want a backtrace here
+            } else {
+                eprintln!("failed to retrieve python exception!");
+                Err(PyRuntimeError::new_err(
+                    "error retrieving dependencies (no exception?)",
+                ))
+            }
         }
+        Err(PubGrubError::NoSolution(mut derivation_tree)) => {
+            derivation_tree.collapse_no_versions();
+            let report = DefaultStringReporter::report(&derivation_tree);
+            Err(PyRuntimeError::new_err(report))
+        }
+        Err(PubGrubError::DependencyOnTheEmptySet {
+            package,
+            version,
+            dependent,
+        }) => Err(PyRuntimeError::new_err(format!(
+            "dependency on the empty set: {package} {version}, {dependent}"
+        ))),
+        Err(PubGrubError::ErrorChoosingPackageVersion(error)) => {
+            if let Some(e) = error.downcast_ref::<PyErr>() {
+                Err(e.clone_ref(py)) // we want a backtrace here
+            } else {
+                eprintln!("failed to retrieve python exception!");
+                Err(PyRuntimeError::new_err(
+                    "error choosing package version (no exception?)",
+                ))
+            }
+        }
+        Err(other) => Err(PyRuntimeError::new_err(format!("other: {other}"))),
     }
 }
 /// A Python module implemented in Rust.
 #[pymodule]
 fn _pubgrub(py: Python, m: &PyModule) -> PyResult<()> {
-    #[allow(unused_must_user)]
+    #[allow(unused_must_use)]
     {
         pyo3_log::try_init();
     }
