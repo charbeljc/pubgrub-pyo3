@@ -257,7 +257,7 @@ fn py_resolve(
             }
         }
         Err(PubGrubError::NoSolution(mut derivation_tree)) => {
-            derivation_tree.collapse_no_versions();
+            // derivation_tree.collapse_no_versions();
             let report = DefaultStringReporter::report(&derivation_tree);
             Err(PyRuntimeError::new_err(report))
         }
