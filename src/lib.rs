@@ -23,20 +23,6 @@ struct PyDependencyProvider {
 }
 
 //#[derive(Serialize, Deserialize)]
-#[pyclass(subclass)]
-struct PyRange(Range<PyVersion>);
-#[pymethods]
-impl PyRange {
-    fn __str__(&self) -> String {
-        self.0.to_string()
-    }
-
-    fn __repr__(&self) -> String {
-        let s = self.0.to_string();
-        format!("Range('{s}')")
-    }
-}
-//#[derive(Serialize, Deserialize)]
 #[derive(Clone, Debug)]
 struct PyPackage {
     proxy: Py<PyAny>,
@@ -290,6 +276,7 @@ fn _pubgrub(py: Python, m: &PyModule) -> PyResult<()> {
     }
 
     m.add_class::<PreRelease>()?;
+    m.add_class::<PyRange>()?;
     m.add_class::<PyVersion>()?;
     m.add_class::<VersionSpecifier>()?;
     m.add_class::<VersionSpecifiers>()?;
@@ -299,6 +286,6 @@ fn _pubgrub(py: Python, m: &PyModule) -> PyResult<()> {
     m.add("Pep508Error", py.get_type::<PyPep508Error>())?;
 
     m.add_function(wrap_pyfunction!(py_resolve, m)?)?;
-
+    m.add_function(wrap_pyfunction!(to_pubgrub_range, m)?)?;
     Ok(())
 }
