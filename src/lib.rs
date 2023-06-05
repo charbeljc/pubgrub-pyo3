@@ -1,5 +1,6 @@
 use pep440_rs::{
     PreRelease, PyVersion, Version as VersionBase, VersionSpecifier, VersionSpecifiers,
+    PyRange, Operator,
 };
 use pep508_rs::{MarkerEnvironment, PyPep508Error, Requirement};
 
@@ -15,10 +16,13 @@ use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyTuple};
 use std::borrow::Borrow;
 
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::fmt;
 use std::hash::Hash;
 
 struct PyDependencyProvider {
+    versions: RefCell<HashMap<PyPackage, Vec<PyVersion>>>,
     proxy: Py<PyAny>,
 }
 
@@ -66,23 +70,39 @@ impl fmt::Display for PyPackage {
 
 impl PyDependencyProvider {
     pub fn available_versions(&self, package: &PyPackage) -> impl Iterator<Item = PyVersion> {
-        let versions = Python::with_gil(|py| {
-            let res = self
-                .proxy
-                .call_method1(py, "available_versions", (package.proxy.clone(),))
-                .unwrap();
-            let res = res.downcast::<PyList>(py).expect("expected a list");
-            let versions: Vec<_> = res
-                .into_iter()
-                .map(|e| {
-                    let ee = e.extract::<&str>().unwrap();
-                    PyVersion::parse(ee).unwrap()
+        // eprintln!("XXX available-versions: {package}");
+        let versions = match self.versions.borrow().get(package) {
+            Some(versions) => {
+                    versions.to_owned()
+            },
+            None => {
+                Python::with_gil(|py| {
+                    let res = match self
+                        .proxy
+                        .call_method1(py, "available_versions", (package.proxy.clone(),)) {
+                            Ok(res) => res,
+                            Err(error) => {
+                                let traceback = error.traceback(py).expect("raised exception have a backtrace");
+                                eprintln!("exception in available_versions():\n {}{}", traceback.format().unwrap(), error);
+                                panic!("{error}");
+                            }
+                        };
+                    let res = res.downcast::<PyList>(py).expect("expected a list");
+                    let versions: Vec<_> = res
+                        .into_iter()
+                        .map(|e| {
+                            let ee = e.extract::<&str>().unwrap();
+                            PyVersion::parse(ee).unwrap()
+                        })
+                        .collect();
+                    versions
                 })
-                .collect();
-            versions
-        });
+            }
+        };
+        self.versions.borrow_mut().insert(package.to_owned(), versions.to_owned());
         versions.into_iter()
     }
+
 }
 
 fn version_specifier_to_pubgrub(version_specifier: &PyList) -> Range<PyVersion> {
@@ -99,16 +119,25 @@ fn version_specifier_to_pubgrub(version_specifier: &PyList) -> Range<PyVersion> 
             ">=" => Range::higher_than(version),
             "<" => Range::strictly_lower_than(version),
             ">" => Range::higher_than(version.bump()),
-            "!=" => {
-                let b = Range::higher_than(version.bump());
-                let a = Range::strictly_lower_than(version);
-                a.union(&b)
-            }
+            "!=" => Range::exact(version).negate(),
             "~=" => {
                 let release = &version.0.release;
-                let vnext = PyVersion(VersionBase::from_release(vec![release[0], release[1] + 1]));
+                let next = match release.len() {
+                    0 | 1 => {
+                        panic!("bad version");
+                    },
+                    2 => {
+                        PyVersion(VersionBase::from_release(vec![release[0] + 1]))
+                    },
+                    3 => {
+                        PyVersion(VersionBase::from_release(vec![release[0], release[1] + 1]))
+                    },
+                    _other => {
+                        panic!("bad version");
+                    }
+                };
 
-                Range::between(version, vnext)
+                Range::between(version, next)
             }
             other => {
                 eprintln!("unsupported operator: {other}");
@@ -122,6 +151,7 @@ fn version_specifier_to_pubgrub(version_specifier: &PyList) -> Range<PyVersion> 
 
 impl DependencyProvider<PyPackage, PyVersion> for PyDependencyProvider {
     fn should_cancel(&self) -> Result<(), Box<dyn std::error::Error>> {
+        // eprintln!("XXX should-cancel");
         Python::with_gil(|py| match self.proxy.call_method0(py, "should_cancel") {
             Ok(yes) => {
                 if yes.is_true(py)? {
@@ -139,26 +169,19 @@ impl DependencyProvider<PyPackage, PyVersion> for PyDependencyProvider {
         &self,
         potential_packages: impl Iterator<Item = (T, U)>,
     ) -> Result<(T, Option<PyVersion>), Box<dyn std::error::Error>> {
+        // eprintln!("XXX choose-package-version");
         Ok(choose_package_with_fewest_versions(
             |p| self.available_versions(p),
             potential_packages,
         ))
     }
 
-    //     choose_package_with_fewest_versions
-    //     let (package, range) = potential_packages.next().unwrap();
-
-    //     let version = self
-    //         .available_versions(package.borrow())
-    //         .find(|v| range.borrow().contains(v));
-    //     Ok((package, version))
-    // }
-
     fn get_dependencies(
         &self,
         package: &PyPackage,
         version: &PyVersion,
     ) -> Result<Dependencies<PyPackage, PyVersion>, Box<dyn std::error::Error>> {
+        // eprintln!("XXX get-dependencies");
         Python::with_gil(|py| {
             let vv = version.clone().into_py(py);
             let res =
@@ -215,6 +238,7 @@ fn py_resolve(
     version: &str,
 ) -> PyResult<Py<PyAny>> {
     let dependency_provider = PyDependencyProvider {
+        versions: RefCell::new(HashMap::default()),
         proxy: dependency_provider,
     };
     let package = PyPackage { proxy: package };
@@ -278,6 +302,7 @@ fn _pubgrub(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<PreRelease>()?;
     m.add_class::<PyRange>()?;
     m.add_class::<PyVersion>()?;
+    m.add_class::<Operator>()?;
     m.add_class::<VersionSpecifier>()?;
     m.add_class::<VersionSpecifiers>()?;
 
@@ -286,6 +311,5 @@ fn _pubgrub(py: Python, m: &PyModule) -> PyResult<()> {
     m.add("Pep508Error", py.get_type::<PyPep508Error>())?;
 
     m.add_function(wrap_pyfunction!(py_resolve, m)?)?;
-    m.add_function(wrap_pyfunction!(to_pubgrub_range, m)?)?;
     Ok(())
 }
