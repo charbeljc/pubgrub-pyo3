@@ -16,3 +16,4 @@ pyo3 = { version = "0.18.3", features = ["abi3-py37", "anyhow", "extension-modul
 pyo3-log = "0.8.1"
 rustc-hash = "1.1.0"
 serde = { version = "1.0.163", features = ["derive"] }
+thiserror = "1.0.40"

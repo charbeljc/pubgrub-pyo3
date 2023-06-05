@@ -11,16 +11,30 @@ use pubgrub::solver::{
     choose_package_with_fewest_versions, resolve, Dependencies, DependencyProvider,
 };
 use pubgrub::version::Version;
-use pyo3::exceptions::PyRuntimeError;
+use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyTuple};
 use std::borrow::Borrow;
 
+use std::error::Error;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt;
 use std::hash::Hash;
 
+
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum PubGrubCallbackError {
+    #[error("invalid return type: {0}")]
+    InvalidReturnType(String),
+    #[error("unsupported specifier: {0}")]
+    UnsupportedSpecifier(String),
+    #[error("invalid specifier: {0}")]
+    InvalidSpecifier(String),
+
+}
 struct PyDependencyProvider {
     versions: RefCell<HashMap<PyPackage, Vec<PyVersion>>>,
     proxy: Py<PyAny>,
@@ -101,6 +115,11 @@ impl PyDependencyProvider {
         };
         self.versions.borrow_mut().insert(package.to_owned(), versions.to_owned());
         versions.into_iter()
+    }
+
+    pub fn foo() -> Result<(), Box<dyn std::error::Error>> {
+        let boxed = Box::new(PubGrubCallbackError::InvalidReturnType("foo".into()));
+        Err(boxed)
     }
 
 }
@@ -199,10 +218,15 @@ impl DependencyProvider<PyPackage, PyVersion> for PyDependencyProvider {
                             let full_range = version_specifier_to_pubgrub(version_specifier);
                             deps.insert(package, full_range);
                         } else if let Ok(url) = v.extract::<&str>() {
-                            // eprintln!("TODO: handle urls: {url}")
-                            // deps.insert()
+                            let boxed = Box::new(
+                                PubGrubCallbackError::UnsupportedSpecifier(url.into())
+                            );
+                            return Err(boxed.into())
                         } else {
-                            todo!("raise value error {v}")
+                            let boxed = Box::new(
+                                PubGrubCallbackError::InvalidSpecifier(format!("{k} {v}"))
+                            );
+                            return Err(boxed.into())
                         }
                     }
                 } else if let Ok(aslist) = res.downcast::<PyList>(py) {
@@ -214,15 +238,23 @@ impl DependencyProvider<PyPackage, PyVersion> for PyDependencyProvider {
                             let full_range = version_specifier_to_pubgrub(version_specifier);
                             deps.insert(package, full_range);
                         } else if let Ok(url) = v.extract::<&str>() {
-                            // eprintln!("TODO: handle urls: {url}")
-                            // deps.insert()
+                            let boxed = Box::new(
+                                PubGrubCallbackError::UnsupportedSpecifier(url.into())
+                            );
+                            return Err(boxed.into())
                         } else {
-                            todo!("raise value error {v}")
+                            let boxed = Box::new(
+                                PubGrubCallbackError::InvalidSpecifier(format!("{k} {v}"))
+                            );
+                            return Err(boxed.into())
                         }
                     }
                 } else {
-                    todo!("XXX: get-deps-results {res:?}");
-                }
+                    let boxed = Box::new(
+                            PubGrubCallbackError::InvalidReturnType(format!("{res}"))
+                        );
+                    return Err(boxed.into())
+                };
                 Ok(Dependencies::Known(deps))
             }
         })
