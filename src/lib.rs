@@ -117,11 +117,6 @@ impl PyDependencyProvider {
         versions.into_iter()
     }
 
-    pub fn foo() -> Result<(), Box<dyn std::error::Error>> {
-        let boxed = Box::new(PubGrubCallbackError::InvalidReturnType("foo".into()));
-        Err(boxed)
-    }
-
 }
 
 fn version_specifier_to_pubgrub(version_specifier: &PyList) -> Range<PyVersion> {
@@ -130,40 +125,9 @@ fn version_specifier_to_pubgrub(version_specifier: &PyList) -> Range<PyVersion> 
         // eprintln!("item: {item:?}");
         //let item: &str = item.extract().expect("Argl!");
 
-        let (op, version): (&str, &PyAny) = item.extract().unwrap();
-        let version = version.extract::<PyVersion>().unwrap();
-        let range: Range<PyVersion> = match op {
-            "==" => Range::exact(version),
-            "<=" => Range::strictly_lower_than(version.bump()),
-            ">=" => Range::higher_than(version),
-            "<" => Range::strictly_lower_than(version),
-            ">" => Range::higher_than(version.bump()),
-            "!=" => Range::exact(version).negate(),
-            "~=" => {
-                let release = &version.0.release;
-                let next = match release.len() {
-                    0 | 1 => {
-                        panic!("bad version");
-                    },
-                    2 => {
-                        PyVersion(VersionBase::from_release(vec![release[0] + 1]))
-                    },
-                    3 => {
-                        PyVersion(VersionBase::from_release(vec![release[0], release[1] + 1]))
-                    },
-                    _other => {
-                        panic!("bad version");
-                    }
-                };
-
-                Range::between(version, next)
-            }
-            other => {
-                eprintln!("unsupported operator: {other}");
-                todo!("other");
-            }
-        };
-        full_range = full_range.intersection(&range);
+        let vs: VersionSpecifier = item.extract().unwrap();
+        let range = vs.to_pubgrub().unwrap();
+        full_range = full_range.intersection(&range.0);
     }
     full_range
 }
@@ -211,37 +175,17 @@ impl DependencyProvider<PyPackage, PyVersion> for PyDependencyProvider {
             } else {
                 let mut deps: rustc_hash::FxHashMap<PyPackage, Range<PyVersion>> =
                     rustc_hash::FxHashMap::default();
-                if let Ok(asdict) = res.downcast::<PyDict>(py) {
-                    for (k, v) in asdict {
-                        let package = PyPackage { proxy: k.into() };
-                        if let Ok(version_specifier) = v.downcast::<PyList>() {
-                            let full_range = version_specifier_to_pubgrub(version_specifier);
-                            deps.insert(package, full_range);
-                        } else if let Ok(url) = v.extract::<&str>() {
-                            let boxed = Box::new(
-                                PubGrubCallbackError::UnsupportedSpecifier(url.into())
-                            );
-                            return Err(boxed.into())
-                        } else {
-                            let boxed = Box::new(
-                                PubGrubCallbackError::InvalidSpecifier(format!("{k} {v}"))
-                            );
-                            return Err(boxed.into())
-                        }
-                    }
-                } else if let Ok(aslist) = res.downcast::<PyList>(py) {
+                if let Ok(aslist) = res.downcast::<PyList>(py) {
                     for item in aslist {
                         let item: &PyTuple = item.downcast().unwrap();
                         let (k, v): (&PyAny, &PyAny) = item.extract().unwrap();
                         let package = PyPackage { proxy: k.into() };
                         if let Ok(version_specifier) = v.downcast::<PyList>() {
-                            let full_range = version_specifier_to_pubgrub(version_specifier);
+                            let range = version_specifier_to_pubgrub(version_specifier);
+                            deps.insert(package, range);
+                        } else if let Ok(_url) = v.extract::<&str>() {
+                            let full_range = Range::any();
                             deps.insert(package, full_range);
-                        } else if let Ok(url) = v.extract::<&str>() {
-                            let boxed = Box::new(
-                                PubGrubCallbackError::UnsupportedSpecifier(url.into())
-                            );
-                            return Err(boxed.into())
                         } else {
                             let boxed = Box::new(
                                 PubGrubCallbackError::InvalidSpecifier(format!("{k} {v}"))
