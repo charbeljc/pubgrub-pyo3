@@ -6,7 +6,7 @@ V = TypeVar('V')
 R = TypeVar('R')
 
 class AbstractDependencyProvider(Generic[P, V, R], metaclass=ABCMeta):
-    def should_cancel(self) -> bool | None:
+    def should_cancel(self):
         pass
 
     @abstractmethod
