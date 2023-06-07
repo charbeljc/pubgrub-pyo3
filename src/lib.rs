@@ -84,7 +84,6 @@ impl fmt::Display for PyPackage {
 
 impl PyDependencyProvider {
     pub fn available_versions(&self, package: &PyPackage) -> impl Iterator<Item = PyVersion> {
-        // eprintln!("XXX available-versions: {package}");
         let versions = match self.versions.borrow().get(package) {
             Some(versions) => {
                     versions.to_owned()
@@ -122,9 +121,6 @@ impl PyDependencyProvider {
 fn version_specifier_to_pubgrub(version_specifier: &PyList) -> Range<PyVersion> {
     let mut full_range: Range<PyVersion> = Range::any();
     for item in version_specifier {
-        // eprintln!("item: {item:?}");
-        //let item: &str = item.extract().expect("Argl!");
-
         let vs: VersionSpecifier = item.extract().unwrap();
         let range = vs.to_pubgrub().unwrap();
         full_range = full_range.intersection(&range.0);
@@ -133,8 +129,8 @@ fn version_specifier_to_pubgrub(version_specifier: &PyList) -> Range<PyVersion> 
 }
 
 impl DependencyProvider<PyPackage, PyVersion> for PyDependencyProvider {
+
     fn should_cancel(&self) -> Result<(), Box<dyn std::error::Error>> {
-        // eprintln!("XXX should-cancel");
         Python::with_gil(|py| match self.proxy.call_method0(py, "should_cancel") {
             Ok(yes) => {
                 if yes.is_true(py)? {
@@ -148,15 +144,16 @@ impl DependencyProvider<PyPackage, PyVersion> for PyDependencyProvider {
             }
         })
     }
+
     fn choose_package_version<T: Borrow<PyPackage>, U: Borrow<Range<PyVersion>>>(
         &self,
         potential_packages: impl Iterator<Item = (T, U)>,
     ) -> Result<(T, Option<PyVersion>), Box<dyn std::error::Error>> {
-        // eprintln!("XXX choose-package-version");
-        Ok(choose_package_with_fewest_versions(
+        let (package, version) = choose_package_with_fewest_versions(
             |p| self.available_versions(p),
             potential_packages,
-        ))
+        );
+        Ok((package, version))
     }
 
     fn get_dependencies(
@@ -164,7 +161,6 @@ impl DependencyProvider<PyPackage, PyVersion> for PyDependencyProvider {
         package: &PyPackage,
         version: &PyVersion,
     ) -> Result<Dependencies<PyPackage, PyVersion>, Box<dyn std::error::Error>> {
-        // eprintln!("XXX get-dependencies");
         Python::with_gil(|py| {
             let vv = version.clone().into_py(py);
             let res =
@@ -204,7 +200,8 @@ impl DependencyProvider<PyPackage, PyVersion> for PyDependencyProvider {
         })
     }
 }
-/// Formats the sum of two numbers as string.
+
+/// Generate a solution for requirements.
 #[pyfunction]
 #[pyo3(name = "resolve")]
 fn py_resolve(
@@ -267,6 +264,8 @@ fn py_resolve(
         Err(other) => Err(PyRuntimeError::new_err(format!("other: {other}"))),
     }
 }
+
+
 /// A Python module implemented in Rust.
 #[pymodule]
 fn _pubgrub(py: Python, m: &PyModule) -> PyResult<()> {
